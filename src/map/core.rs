@@ -11,6 +11,7 @@ mod entry;
 
 pub mod raw_entry_v1;
 
+use allocator_api2::alloc::{Allocator, Global};
 use hashbrown::hash_table;
 
 use crate::vec::{self, Vec};
@@ -21,18 +22,18 @@ use core::ops::RangeBounds;
 use crate::util::simplify_range;
 use crate::{Bucket, Equivalent, HashValue};
 
-type Indices = hash_table::HashTable<usize>;
-type Entries<K, V> = Vec<Bucket<K, V>>;
+type Indices<A> = hash_table::HashTable<usize, A>;
+type Entries<K, V, A> = Vec<Bucket<K, V>, A>;
 
 pub use entry::{Entry, IndexedEntry, OccupiedEntry, VacantEntry};
 
 /// Core of the map that does not depend on S
 #[derive(Debug)]
-pub(crate) struct IndexMapCore<K, V> {
+pub(crate) struct IndexMapCore<K, V, A: Allocator> {
     /// indices mapping from the entry hash to its index.
-    indices: Indices,
+    indices: Indices<A>,
     /// entries is a dense vec maintaining entry order.
-    entries: Entries<K, V>,
+    entries: Entries<K, V, A>,
 }
 
 /// Mutable references to the parts of an `IndexMapCore`.
@@ -41,9 +42,9 @@ pub(crate) struct IndexMapCore<K, V> {
 /// `&mut entries` separately, and there's no way to go back to a `&mut IndexMapCore`. So this type
 /// is used to implement methods on the split references, and `IndexMapCore` can also call those to
 /// avoid duplication.
-struct RefMut<'a, K, V> {
-    indices: &'a mut Indices,
-    entries: &'a mut Entries<K, V>,
+struct RefMut<'a, K, V, A: Allocator> {
+    indices: &'a mut Indices<A>,
+    entries: &'a mut Entries<K, V, A>,
 }
 
 #[inline(always)]
@@ -60,7 +61,7 @@ fn equivalent<'a, K, V, Q: ?Sized + Equivalent<K>>(
 }
 
 #[inline]
-fn erase_index(table: &mut Indices, hash: HashValue, index: usize) {
+fn erase_index<A: Allocator>(table: &mut Indices<A>, hash: HashValue, index: usize) {
     if let Ok(entry) = table.find_entry(hash.get(), move |&i| i == index) {
         entry.remove();
     } else if cfg!(debug_assertions) {
@@ -69,7 +70,7 @@ fn erase_index(table: &mut Indices, hash: HashValue, index: usize) {
 }
 
 #[inline]
-fn update_index(table: &mut Indices, hash: HashValue, old: usize, new: usize) {
+fn update_index<A: Allocator>(table: &mut Indices<A>, hash: HashValue, old: usize, new: usize) {
     let index = table
         .find_mut(hash.get(), move |&i| i == old)
         .expect("index not found");
@@ -80,20 +81,22 @@ fn update_index(table: &mut Indices, hash: HashValue, old: usize, new: usize) {
 /// and without regard for duplication.
 ///
 /// ***Panics*** if there is not sufficient capacity already.
-fn insert_bulk_no_grow<K, V>(indices: &mut Indices, entries: &[Bucket<K, V>]) {
+fn insert_bulk_no_grow<K, V, A: Allocator>(indices: &mut Indices<A>, entries: &[Bucket<K, V>]) {
     assert!(indices.capacity() - indices.len() >= entries.len());
     for entry in entries {
         indices.insert_unique(entry.hash.get(), indices.len(), |_| unreachable!());
     }
 }
 
-impl<K, V> Clone for IndexMapCore<K, V>
+impl<K, V, A> Clone for IndexMapCore<K, V, A>
 where
     K: Clone,
     V: Clone,
+    A: Allocator + Clone,
 {
     fn clone(&self) -> Self {
-        let mut new = Self::new();
+        let allocator = self.allocator().clone();
+        let mut new = Self::new_in(allocator);
         new.clone_from(self);
         new
     }
@@ -109,11 +112,11 @@ where
     }
 }
 
-impl<K, V> crate::Entries for IndexMapCore<K, V> {
+impl<K, V, A: Allocator> crate::Entries<A> for IndexMapCore<K, V, A> {
     type Entry = Bucket<K, V>;
 
     #[inline]
-    fn into_entries(self) -> Vec<Self::Entry> {
+    fn into_entries(self) -> Vec<Self::Entry, A> {
         self.entries
     }
 
@@ -136,10 +139,7 @@ impl<K, V> crate::Entries for IndexMapCore<K, V> {
     }
 }
 
-impl<K, V> IndexMapCore<K, V> {
-    /// The maximum capacity before the `entries` allocation would exceed `isize::MAX`.
-    const MAX_ENTRIES_CAPACITY: usize = (isize::MAX as usize) / mem::size_of::<Bucket<K, V>>();
-
+impl<K, V> IndexMapCore<K, V, Global> {
     #[inline]
     pub(crate) const fn new() -> Self {
         IndexMapCore {
@@ -149,15 +149,42 @@ impl<K, V> IndexMapCore<K, V> {
     }
 
     #[inline]
-    fn borrow_mut(&mut self) -> RefMut<'_, K, V> {
-        RefMut::new(&mut self.indices, &mut self.entries)
-    }
-
-    #[inline]
     pub(crate) fn with_capacity(n: usize) -> Self {
         IndexMapCore {
             indices: Indices::with_capacity(n),
             entries: Vec::with_capacity(n),
+        }
+    }
+}
+
+impl<K, V, A: Allocator> IndexMapCore<K, V, A> {
+    /// The maximum capacity before the `entries` allocation would exceed `isize::MAX`.
+    const MAX_ENTRIES_CAPACITY: usize = (isize::MAX as usize) / mem::size_of::<Bucket<K, V>>();
+
+    #[inline]
+    pub(crate) fn new_in(alloc: A) -> Self
+    where
+        A: Clone,
+    {
+        IndexMapCore {
+            indices: Indices::new_in(alloc.clone()),
+            entries: Vec::new_in(alloc),
+        }
+    }
+
+    #[inline]
+    fn borrow_mut(&mut self) -> RefMut<'_, K, V, A> {
+        RefMut::new(&mut self.indices, &mut self.entries)
+    }
+
+    #[inline]
+    pub(crate) fn with_capacity_in(n: usize, alloc: A) -> Self
+    where
+        A: Clone,
+    {
+        IndexMapCore {
+            indices: Indices::with_capacity_in(n, alloc.clone()),
+            entries: Vec::with_capacity_in(n, alloc),
         }
     }
 
@@ -169,6 +196,11 @@ impl<K, V> IndexMapCore<K, V> {
     #[inline]
     pub(crate) fn capacity(&self) -> usize {
         Ord::min(self.indices.capacity(), self.entries.capacity())
+    }
+
+    #[inline]
+    pub(crate) fn allocator(&self) -> &A {
+        self.indices.allocator()
     }
 
     pub(crate) fn clear(&mut self) {
@@ -184,7 +216,7 @@ impl<K, V> IndexMapCore<K, V> {
     }
 
     #[track_caller]
-    pub(crate) fn drain<R>(&mut self, range: R) -> vec::Drain<'_, Bucket<K, V>>
+    pub(crate) fn drain<R>(&mut self, range: R) -> vec::Drain<'_, Bucket<K, V>, A>
     where
         R: RangeBounds<usize>,
     {
@@ -207,7 +239,10 @@ impl<K, V> IndexMapCore<K, V> {
     }
 
     #[track_caller]
-    pub(crate) fn split_off(&mut self, at: usize) -> Self {
+    pub(crate) fn split_off(&mut self, at: usize) -> Self
+    where
+        A: Clone,
+    {
         let len = self.entries.len();
         assert!(
             at <= len,
@@ -217,22 +252,27 @@ impl<K, V> IndexMapCore<K, V> {
         self.erase_indices(at, self.entries.len());
         let entries = self.entries.split_off(at);
 
-        let mut indices = Indices::with_capacity(entries.len());
+        let allocator = self.allocator().clone();
+
+        let mut indices = Indices::with_capacity_in(entries.len(), allocator);
         insert_bulk_no_grow(&mut indices, &entries);
         Self { indices, entries }
     }
 
     #[track_caller]
-    pub(crate) fn split_splice<R>(&mut self, range: R) -> (Self, vec::IntoIter<Bucket<K, V>>)
+    pub(crate) fn split_splice<R>(&mut self, range: R) -> (Self, vec::IntoIter<Bucket<K, V>, A>)
     where
         R: RangeBounds<usize>,
+        A: Clone,
     {
         let range = simplify_range(range, self.len());
         self.erase_indices(range.start, self.entries.len());
         let entries = self.entries.split_off(range.end);
         let drained = self.entries.split_off(range.start);
 
-        let mut indices = Indices::with_capacity(entries.len());
+        let allocator = self.allocator().clone();
+
+        let mut indices = Indices::with_capacity_in(entries.len(), allocator);
         insert_bulk_no_grow(&mut indices, &entries);
         (Self { indices, entries }, drained.into_iter())
     }
@@ -523,10 +563,14 @@ impl<K, V> IndexMapCore<K, V> {
 }
 
 /// Reserve entries capacity, rounded up to match the indices (via `try_capacity`).
-fn reserve_entries<K, V>(entries: &mut Entries<K, V>, additional: usize, try_capacity: usize) {
+fn reserve_entries<K, V, A: Allocator>(
+    entries: &mut Entries<K, V, A>,
+    additional: usize,
+    try_capacity: usize,
+) {
     // Use a soft-limit on the maximum capacity, but if the caller explicitly
     // requested more, do it and let them have the resulting panic.
-    let try_capacity = try_capacity.min(IndexMapCore::<K, V>::MAX_ENTRIES_CAPACITY);
+    let try_capacity = try_capacity.min(IndexMapCore::<K, V, A>::MAX_ENTRIES_CAPACITY);
     let try_add = try_capacity - entries.len();
     if try_add > additional && entries.try_reserve_exact(try_add).is_ok() {
         return;
@@ -534,21 +578,21 @@ fn reserve_entries<K, V>(entries: &mut Entries<K, V>, additional: usize, try_cap
     entries.reserve_exact(additional);
 }
 
-impl<'a, K, V> RefMut<'a, K, V> {
+impl<'a, K, V, A: Allocator> RefMut<'a, K, V, A> {
     #[inline]
-    fn new(indices: &'a mut Indices, entries: &'a mut Entries<K, V>) -> Self {
+    fn new(indices: &'a mut Indices<A>, entries: &'a mut Entries<K, V, A>) -> Self {
         Self { indices, entries }
     }
 
     /// Reserve entries capacity, rounded up to match the indices
     #[inline]
     fn reserve_entries(&mut self, additional: usize) {
-        reserve_entries(self.entries, additional, self.indices.capacity());
+        reserve_entries::<K, V, A>(self.entries, additional, self.indices.capacity());
     }
 
     /// Insert a key-value pair in `entries`,
     /// *without* checking whether it already exists.
-    fn insert_unique(self, hash: HashValue, key: K, value: V) -> OccupiedEntry<'a, K, V> {
+    fn insert_unique(self, hash: HashValue, key: K, value: V) -> OccupiedEntry<'a, K, V, A> {
         let i = self.indices.len();
         debug_assert_eq!(i, self.entries.len());
         let entry = self
@@ -558,7 +602,7 @@ impl<'a, K, V> RefMut<'a, K, V> {
             // We can't call `indices.capacity()` while this `entry` has borrowed it, so we'll have
             // to amortize growth on our own. It's still an improvement over the basic `Vec::push`
             // doubling though, since we also consider `MAX_ENTRIES_CAPACITY`.
-            reserve_entries(self.entries, 1, 2 * self.entries.capacity());
+            reserve_entries::<K, V, A>(self.entries, 1, 2 * self.entries.capacity());
         }
         self.entries.push(Bucket { hash, key, value });
         OccupiedEntry::new(self.entries, entry)

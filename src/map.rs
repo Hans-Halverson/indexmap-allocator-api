@@ -30,8 +30,9 @@ use ::core::fmt;
 use ::core::hash::{BuildHasher, Hash, Hasher};
 use ::core::mem;
 use ::core::ops::{Index, IndexMut, RangeBounds};
-use alloc::boxed::Box;
-use alloc::vec::Vec;
+use allocator_api2::alloc::{Allocator, Global};
+use allocator_api2::boxed::Box;
+use allocator_api2::vec::Vec;
 
 #[cfg(feature = "std")]
 use std::collections::hash_map::RandomState;
@@ -84,21 +85,22 @@ use crate::{Bucket, Entries, Equivalent, HashValue, TryReserveError};
 /// assert_eq!(letters.get(&'y'), None);
 /// ```
 #[cfg(feature = "std")]
-pub struct IndexMap<K, V, S = RandomState> {
-    pub(crate) core: IndexMapCore<K, V>,
+pub struct IndexMap<K, V, S = RandomState, A: Allocator = Global> {
+    pub(crate) core: IndexMapCore<K, V, A>,
     hash_builder: S,
 }
 #[cfg(not(feature = "std"))]
-pub struct IndexMap<K, V, S> {
-    pub(crate) core: IndexMapCore<K, V>,
+pub struct IndexMap<K, V, S, A: Allocator> {
+    pub(crate) core: IndexMapCore<K, V, A>,
     hash_builder: S,
 }
 
-impl<K, V, S> Clone for IndexMap<K, V, S>
+impl<K, V, S, A> Clone for IndexMap<K, V, S, A>
 where
     K: Clone,
     V: Clone,
     S: Clone,
+    A: Allocator + Clone,
 {
     fn clone(&self) -> Self {
         IndexMap {
@@ -113,11 +115,11 @@ where
     }
 }
 
-impl<K, V, S> Entries for IndexMap<K, V, S> {
+impl<K, V, S, A: Allocator> Entries<A> for IndexMap<K, V, S, A> {
     type Entry = Bucket<K, V>;
 
     #[inline]
-    fn into_entries(self) -> Vec<Self::Entry> {
+    fn into_entries(self) -> Vec<Self::Entry, A> {
         self.core.into_entries()
     }
 
@@ -139,10 +141,11 @@ impl<K, V, S> Entries for IndexMap<K, V, S> {
     }
 }
 
-impl<K, V, S> fmt::Debug for IndexMap<K, V, S>
+impl<K, V, S, A> fmt::Debug for IndexMap<K, V, S, A>
 where
     K: fmt::Debug,
     V: fmt::Debug,
+    A: Allocator,
 {
     #[cfg(not(feature = "test_debug"))]
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -160,7 +163,7 @@ where
 
 #[cfg(feature = "std")]
 #[cfg_attr(docsrs, doc(cfg(feature = "std")))]
-impl<K, V> IndexMap<K, V> {
+impl<K, V, S: Default> IndexMap<K, V, S, Global> {
     /// Create a new map. (Does not allocate.)
     #[inline]
     pub fn new() -> Self {
@@ -177,7 +180,32 @@ impl<K, V> IndexMap<K, V> {
     }
 }
 
-impl<K, V, S> IndexMap<K, V, S> {
+#[cfg(feature = "std")]
+#[cfg_attr(docsrs, doc(cfg(feature = "std")))]
+impl<K, V, S: Default, A: Allocator> IndexMap<K, V, S, A> {
+    /// Create a new map with the provided allocator. (Does not allocate.)
+    #[inline]
+    pub fn new_in(alloc: A) -> Self
+    where
+        A: Clone,
+    {
+        Self::with_capacity_in(0, alloc)
+    }
+
+    /// Create a new map with capacity for `n` key-value pairs with the provided allocator.
+    /// (Does not allocate if `n` is zero.)
+    ///
+    /// Computes in **O(n)** time.
+    #[inline]
+    pub fn with_capacity_in(n: usize, alloc: A) -> Self
+    where
+        A: Clone,
+    {
+        Self::with_capacity_and_hasher_in(n, <_>::default(), alloc)
+    }
+}
+
+impl<K, V, S> IndexMap<K, V, S, Global> {
     /// Create a new map with capacity for `n` key-value pairs. (Does not
     /// allocate if `n` is zero.)
     ///
@@ -201,6 +229,41 @@ impl<K, V, S> IndexMap<K, V, S> {
     pub const fn with_hasher(hash_builder: S) -> Self {
         IndexMap {
             core: IndexMapCore::new(),
+            hash_builder,
+        }
+    }
+}
+
+impl<K, V, S, A: Allocator> IndexMap<K, V, S, A> {
+    /// Create a new map with capacity for `n` key-value pairs. (Does not
+    /// allocate if `n` is zero.)
+    ///
+    /// Computes in **O(n)** time.
+    #[inline]
+    pub fn with_capacity_and_hasher_in(n: usize, hash_builder: S, alloc: A) -> Self
+    where
+        A: Clone,
+    {
+        if n == 0 {
+            Self::with_hasher_in(hash_builder, alloc)
+        } else {
+            IndexMap {
+                core: IndexMapCore::with_capacity_in(n, alloc),
+                hash_builder,
+            }
+        }
+    }
+
+    /// Create a new map with `hash_builder`.
+    ///
+    /// This function is `const`, so it
+    /// can be called in `static` contexts.
+    pub fn with_hasher_in(hash_builder: S, alloc: A) -> Self
+    where
+        A: Clone,
+    {
+        IndexMap {
+            core: IndexMapCore::new_in(alloc),
             hash_builder,
         }
     }
@@ -252,7 +315,7 @@ impl<K, V, S> IndexMap<K, V, S> {
     }
 
     /// Return an owning iterator over the keys of the map, in their order
-    pub fn into_keys(self) -> IntoKeys<K, V> {
+    pub fn into_keys(self) -> IntoKeys<K, V, A> {
         IntoKeys::new(self.into_entries())
     }
 
@@ -268,7 +331,7 @@ impl<K, V, S> IndexMap<K, V, S> {
     }
 
     /// Return an owning iterator over the values of the map, in their order
-    pub fn into_values(self) -> IntoValues<K, V> {
+    pub fn into_values(self) -> IntoValues<K, V, A> {
         IntoValues::new(self.into_entries())
     }
 
@@ -300,7 +363,7 @@ impl<K, V, S> IndexMap<K, V, S> {
     /// ***Panics*** if the starting point is greater than the end point or if
     /// the end point is greater than the length of the map.
     #[track_caller]
-    pub fn drain<R>(&mut self, range: R) -> Drain<'_, K, V>
+    pub fn drain<R>(&mut self, range: R) -> Drain<'_, K, V, A>
     where
         R: RangeBounds<usize>,
     {
@@ -318,6 +381,7 @@ impl<K, V, S> IndexMap<K, V, S> {
     pub fn split_off(&mut self, at: usize) -> Self
     where
         S: Clone,
+        A: Clone,
     {
         Self {
             core: self.core.split_off(at),
@@ -378,10 +442,11 @@ impl<K, V, S> IndexMap<K, V, S> {
     }
 }
 
-impl<K, V, S> IndexMap<K, V, S>
+impl<K, V, S, A> IndexMap<K, V, S, A>
 where
     K: Hash + Eq,
     S: BuildHasher,
+    A: Allocator,
 {
     /// Insert a key-value pair in the map.
     ///
@@ -610,7 +675,7 @@ where
     /// in-place manipulation.
     ///
     /// Computes in **O(1)** time (amortized average).
-    pub fn entry(&mut self, key: K) -> Entry<'_, K, V> {
+    pub fn entry(&mut self, key: K) -> Entry<'_, K, V, A> {
         let hash = self.hash(&key);
         self.core.entry(hash, key)
     }
@@ -646,10 +711,11 @@ where
     /// assert_eq!(removed, &[(2, 'b'), (3, 'c')]);
     /// ```
     #[track_caller]
-    pub fn splice<R, I>(&mut self, range: R, replace_with: I) -> Splice<'_, I::IntoIter, K, V, S>
+    pub fn splice<R, I>(&mut self, range: R, replace_with: I) -> Splice<'_, I::IntoIter, K, V, S, A>
     where
         R: RangeBounds<usize>,
         I: IntoIterator<Item = (K, V)>,
+        A: Clone,
     {
         Splice::new(self, range, replace_with.into_iter())
     }
@@ -684,7 +750,7 @@ where
     }
 }
 
-impl<K, V, S> IndexMap<K, V, S>
+impl<K, V, S, A: Allocator> IndexMap<K, V, S, A>
 where
     S: BuildHasher,
 {
@@ -948,7 +1014,7 @@ where
     }
 }
 
-impl<K, V, S> IndexMap<K, V, S> {
+impl<K, V, S, A: Allocator> IndexMap<K, V, S, A> {
     /// Remove the last key-value pair
     ///
     /// This preserves the order of the remaining elements.
@@ -1010,7 +1076,7 @@ impl<K, V, S> IndexMap<K, V, S> {
     /// the key-value pairs with the result.
     ///
     /// The sort is stable.
-    pub fn sorted_by<F>(self, mut cmp: F) -> IntoIter<K, V>
+    pub fn sorted_by<F>(self, mut cmp: F) -> IntoIter<K, V, A>
     where
         F: FnMut(&K, &V, &K, &V) -> Ordering,
     {
@@ -1054,7 +1120,7 @@ impl<K, V, S> IndexMap<K, V, S> {
     ///
     /// The sort is unstable.
     #[inline]
-    pub fn sorted_unstable_by<F>(self, mut cmp: F) -> IntoIter<K, V>
+    pub fn sorted_unstable_by<F>(self, mut cmp: F) -> IntoIter<K, V, A>
     where
         F: FnMut(&K, &V, &K, &V) -> Ordering,
     {
@@ -1162,7 +1228,10 @@ impl<K, V, S> IndexMap<K, V, S> {
     /// Converts into a boxed slice of all the key-value pairs in the map.
     ///
     /// Note that this will drop the inner hash table and any excess capacity.
-    pub fn into_boxed_slice(self) -> Box<Slice<K, V>> {
+    pub fn into_boxed_slice(self) -> Box<Slice<K, V>, A>
+    where
+        A: Clone,
+    {
         Slice::from_boxed(self.into_entries().into_boxed_slice())
     }
 
@@ -1189,7 +1258,7 @@ impl<K, V, S> IndexMap<K, V, S> {
     /// Valid indices are `0 <= index < self.len()`.
     ///
     /// Computes in **O(1)** time.
-    pub fn get_index_entry(&mut self, index: usize) -> Option<IndexedEntry<'_, K, V>> {
+    pub fn get_index_entry(&mut self, index: usize) -> Option<IndexedEntry<'_, K, V, A>> {
         if index >= self.len() {
             return None;
         }
@@ -1236,7 +1305,7 @@ impl<K, V, S> IndexMap<K, V, S> {
     /// Get the first entry in the map for in-place manipulation.
     ///
     /// Computes in **O(1)** time.
-    pub fn first_entry(&mut self) -> Option<IndexedEntry<'_, K, V>> {
+    pub fn first_entry(&mut self) -> Option<IndexedEntry<'_, K, V, A>> {
         self.get_index_entry(0)
     }
 
@@ -1258,7 +1327,7 @@ impl<K, V, S> IndexMap<K, V, S> {
     /// Get the last entry in the map for in-place manipulation.
     ///
     /// Computes in **O(1)** time.
-    pub fn last_entry(&mut self) -> Option<IndexedEntry<'_, K, V>> {
+    pub fn last_entry(&mut self) -> Option<IndexedEntry<'_, K, V, A>> {
         self.get_index_entry(self.len().checked_sub(1)?)
     }
 
@@ -1335,7 +1404,7 @@ impl<K, V, S> IndexMap<K, V, S> {
 /// map.insert("foo", 1);
 /// println!("{:?}", map["bar"]); // panics!
 /// ```
-impl<K, V, Q: ?Sized, S> Index<&Q> for IndexMap<K, V, S>
+impl<K, V, Q: ?Sized, S, A: Allocator> Index<&Q> for IndexMap<K, V, S, A>
 where
     Q: Hash + Equivalent<K>,
     S: BuildHasher,
@@ -1379,7 +1448,7 @@ where
 /// map.insert("foo", 1);
 /// map["bar"] = 1; // panics!
 /// ```
-impl<K, V, Q: ?Sized, S> IndexMut<&Q> for IndexMap<K, V, S>
+impl<K, V, Q: ?Sized, S, A: Allocator> IndexMut<&Q> for IndexMap<K, V, S, A>
 where
     Q: Hash + Equivalent<K>,
     S: BuildHasher,
@@ -1424,7 +1493,7 @@ where
 /// map.insert("foo", 1);
 /// println!("{:?}", map[10]); // panics!
 /// ```
-impl<K, V, S> Index<usize> for IndexMap<K, V, S> {
+impl<K, V, S, A: Allocator> Index<usize> for IndexMap<K, V, S, A> {
     type Output = V;
 
     /// Returns a reference to the value at the supplied `index`.
@@ -1471,7 +1540,7 @@ impl<K, V, S> Index<usize> for IndexMap<K, V, S> {
 /// map.insert("foo", 1);
 /// map[10] = 1; // panics!
 /// ```
-impl<K, V, S> IndexMut<usize> for IndexMap<K, V, S> {
+impl<K, V, S, A: Allocator> IndexMut<usize> for IndexMap<K, V, S, A> {
     /// Returns a mutable reference to the value at the supplied `index`.
     ///
     /// ***Panics*** if `index` is out of bounds.
@@ -1486,7 +1555,7 @@ impl<K, V, S> IndexMut<usize> for IndexMap<K, V, S> {
     }
 }
 
-impl<K, V, S> FromIterator<(K, V)> for IndexMap<K, V, S>
+impl<K, V, S> FromIterator<(K, V)> for IndexMap<K, V, S, Global>
 where
     K: Hash + Eq,
     S: BuildHasher + Default,
@@ -1507,7 +1576,7 @@ where
 
 #[cfg(feature = "std")]
 #[cfg_attr(docsrs, doc(cfg(feature = "std")))]
-impl<K, V, const N: usize> From<[(K, V); N]> for IndexMap<K, V, RandomState>
+impl<K, V, const N: usize> From<[(K, V); N]> for IndexMap<K, V, RandomState, Global>
 where
     K: Hash + Eq,
 {
@@ -1525,10 +1594,11 @@ where
     }
 }
 
-impl<K, V, S> Extend<(K, V)> for IndexMap<K, V, S>
+impl<K, V, S, A> Extend<(K, V)> for IndexMap<K, V, S, A>
 where
     K: Hash + Eq,
     S: BuildHasher,
+    A: Allocator,
 {
     /// Extend the map with all key-value pairs in the iterable.
     ///
@@ -1558,11 +1628,12 @@ where
     }
 }
 
-impl<'a, K, V, S> Extend<(&'a K, &'a V)> for IndexMap<K, V, S>
+impl<'a, K, V, S, A> Extend<(&'a K, &'a V)> for IndexMap<K, V, S, A>
 where
     K: Hash + Eq + Copy,
     V: Copy,
     S: BuildHasher,
+    A: Allocator,
 {
     /// Extend the map with all key-value pairs in the iterable.
     ///
@@ -1572,7 +1643,7 @@ where
     }
 }
 
-impl<K, V, S> Default for IndexMap<K, V, S>
+impl<K, V, S> Default for IndexMap<K, V, S, Global>
 where
     S: Default,
 {
@@ -1582,14 +1653,16 @@ where
     }
 }
 
-impl<K, V1, S1, V2, S2> PartialEq<IndexMap<K, V2, S2>> for IndexMap<K, V1, S1>
+impl<K, V1, S1, V2, S2, A1, A2> PartialEq<IndexMap<K, V2, S2, A2>> for IndexMap<K, V1, S1, A1>
 where
     K: Hash + Eq,
     V1: PartialEq<V2>,
     S1: BuildHasher,
     S2: BuildHasher,
+    A1: Allocator,
+    A2: Allocator,
 {
-    fn eq(&self, other: &IndexMap<K, V2, S2>) -> bool {
+    fn eq(&self, other: &IndexMap<K, V2, S2, A2>) -> bool {
         if self.len() != other.len() {
             return false;
         }
@@ -1599,7 +1672,7 @@ where
     }
 }
 
-impl<K, V, S> Eq for IndexMap<K, V, S>
+impl<K, V, S, A: Allocator> Eq for IndexMap<K, V, S, A>
 where
     K: Eq + Hash,
     V: Eq,

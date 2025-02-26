@@ -1,11 +1,11 @@
 use super::{
-    Bucket, Entries, IndexMap, IntoIter, IntoKeys, IntoValues, Iter, IterMut, Keys, Values,
-    ValuesMut,
+    Bucket, Entries, IndexMap, IntoKeys, IntoValues, Iter, IterMut, Keys, Values, ValuesMut,
 };
 use crate::util::try_simplify_range;
 
-use alloc::boxed::Box;
-use alloc::vec::Vec;
+use allocator_api2::alloc::Allocator;
+use allocator_api2::boxed::Box;
+use allocator_api2::vec::Vec;
 use core::cmp::Ordering;
 use core::fmt;
 use core::hash::{Hash, Hasher};
@@ -35,18 +35,25 @@ impl<K, V> Slice<K, V> {
         unsafe { &mut *(entries as *mut [Bucket<K, V>] as *mut Self) }
     }
 
-    pub(super) fn from_boxed(entries: Box<[Bucket<K, V>]>) -> Box<Self> {
-        unsafe { Box::from_raw(Box::into_raw(entries) as *mut Self) }
+    pub(super) fn from_boxed<A: Allocator + Clone>(
+        entries: Box<[Bucket<K, V>], A>,
+    ) -> Box<Self, A> {
+        let allocator = Box::allocator(&entries).clone();
+        unsafe { Box::from_raw_in(Box::into_raw(entries) as *mut Self, allocator) }
     }
 
-    fn into_boxed(self: Box<Self>) -> Box<[Bucket<K, V>]> {
-        unsafe { Box::from_raw(Box::into_raw(self) as *mut [Bucket<K, V>]) }
+    fn into_boxed<A: Allocator + Clone>(this: Box<Self, A>) -> Box<[Bucket<K, V>], A> {
+        let allocator = Box::allocator(&this).clone();
+        unsafe { Box::from_raw_in(Box::into_raw(this) as *mut [Bucket<K, V>], allocator) }
     }
 }
 
 impl<K, V> Slice<K, V> {
-    pub(crate) fn into_entries(self: Box<Self>) -> Vec<Bucket<K, V>> {
-        self.into_boxed().into_vec()
+    pub(crate) fn into_entries<A: Allocator>(this: Box<Self, A>) -> Vec<Bucket<K, V>, A>
+    where
+        A: Clone,
+    {
+        Slice::into_boxed(this).into_vec()
     }
 
     /// Returns an empty slice.
@@ -193,8 +200,11 @@ impl<K, V> Slice<K, V> {
     }
 
     /// Return an owning iterator over the keys of the map slice.
-    pub fn into_keys(self: Box<Self>) -> IntoKeys<K, V> {
-        IntoKeys::new(self.into_entries())
+    pub fn into_keys<A: Allocator>(this: Box<Self, A>) -> IntoKeys<K, V, A>
+    where
+        A: Clone,
+    {
+        IntoKeys::new(Slice::into_entries(this))
     }
 
     /// Return an iterator over the values of the map slice.
@@ -208,8 +218,11 @@ impl<K, V> Slice<K, V> {
     }
 
     /// Return an owning iterator over the values of the map slice.
-    pub fn into_values(self: Box<Self>) -> IntoValues<K, V> {
-        IntoValues::new(self.into_entries())
+    pub fn into_values<A: Allocator>(this: Box<Self, A>) -> IntoValues<K, V, A>
+    where
+        A: Clone,
+    {
+        IntoValues::new(Slice::into_entries(this))
     }
 
     /// Search over a sorted map for a key.
@@ -290,14 +303,14 @@ impl<'a, K, V> IntoIterator for &'a mut Slice<K, V> {
     }
 }
 
-impl<K, V> IntoIterator for Box<Slice<K, V>> {
-    type IntoIter = IntoIter<K, V>;
-    type Item = (K, V);
+// impl<K, V> IntoIterator for Box<Slice<K, V>> {
+//     type IntoIter = IntoIter<K, V>;
+//     type Item = (K, V);
 
-    fn into_iter(self) -> Self::IntoIter {
-        IntoIter::new(self.into_entries())
-    }
-}
+//     fn into_iter(self) -> Self::IntoIter {
+//         IntoIter::new(Slice::into_entries(self))
+//     }
+// }
 
 impl<K, V> Default for &'_ Slice<K, V> {
     fn default() -> Self {
@@ -311,17 +324,23 @@ impl<K, V> Default for &'_ mut Slice<K, V> {
     }
 }
 
-impl<K, V> Default for Box<Slice<K, V>> {
-    fn default() -> Self {
-        Slice::from_boxed(Box::default())
-    }
-}
+// impl<K, V> Default for Box<Slice<K, V>> {
+//     fn default() -> Self {
+//         Slice::from_boxed(Box::default())
+//     }
+// }
 
-impl<K: Clone, V: Clone> Clone for Box<Slice<K, V>> {
-    fn clone(&self) -> Self {
-        Slice::from_boxed(self.entries.to_vec().into_boxed_slice())
-    }
-}
+// impl<K: Clone, V: Clone> Clone for Box<Slice<K, V>> {
+//     fn clone(&self) -> Self {
+//         Slice::from_boxed(
+//             self.entries
+//                 .iter()
+//                 .map(|e| (*e).clone())
+//                 .collect::<Vec<_>>()
+//                 .into_boxed_slice(),
+//         )
+//     }
+// }
 
 impl<K: Copy, V: Copy> From<&Slice<K, V>> for Box<Slice<K, V>> {
     fn from(slice: &Slice<K, V>) -> Self {

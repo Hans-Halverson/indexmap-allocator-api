@@ -1,3 +1,15 @@
+# indexmap-allocator-api
+
+A fork of the popular [indexmap](https://github.com/indexmap-rs/indexmap) crate that is patched to support custom allocators in almost all functions. Uses the `allocator_api2` crate to provide allocator support in stable rust.
+
+Based on version 2.7.1 of the original indexmap crate.
+
+Both `IndexMap` and `IndexSet` provide `new_in`, `with_capacity_in`, `with_hasher_in`, and `with_capacity_and_hasher_in` methods that take an allocator as an argument. The allocator must implement the `Allocator` trait from the `allocator_api2` crate.
+
+Non-default features of `indexmap` (e.g. `rayon`) are not officially supported, and some methods run afoul of the orphan rule and were removed. Otherwise virtually the entire API surface of the original `indexmap` crate has been converted to use custom allocators.
+
+README of the original indexmap crate is included below:
+
 # indexmap
 
 [![build status](https://github.com/indexmap-rs/indexmap/actions/workflows/ci.yml/badge.svg?branch=master)](https://github.com/indexmap-rs/indexmap/actions)

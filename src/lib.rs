@@ -102,13 +102,12 @@
 
 #![cfg_attr(docsrs, feature(doc_cfg))]
 
-extern crate alloc;
-
 #[cfg(feature = "std")]
 #[macro_use]
 extern crate std;
 
-use alloc::vec::{self, Vec};
+use allocator_api2::alloc::Allocator;
+use allocator_api2::vec::{self, Vec};
 
 mod arbitrary;
 #[macro_use]
@@ -206,9 +205,9 @@ impl<K, V> Bucket<K, V> {
     }
 }
 
-trait Entries {
+trait Entries<A: Allocator> {
     type Entry;
-    fn into_entries(self) -> Vec<Self::Entry>;
+    fn into_entries(self) -> Vec<Self::Entry, A>;
     fn as_entries(&self) -> &[Self::Entry];
     fn as_entries_mut(&mut self) -> &mut [Self::Entry];
     fn with_entries<F>(&mut self, f: F)
@@ -225,14 +224,16 @@ pub struct TryReserveError {
 #[derive(Clone, PartialEq, Eq, Debug)]
 enum TryReserveErrorKind {
     // The standard library's kind is currently opaque to us, otherwise we could unify this.
-    Std(alloc::collections::TryReserveError),
+    Std(allocator_api2::collections::TryReserveError),
     CapacityOverflow,
-    AllocError { layout: alloc::alloc::Layout },
+    AllocError {
+        layout: allocator_api2::alloc::Layout,
+    },
 }
 
 // These are not `From` so we don't expose them in our public API.
 impl TryReserveError {
-    fn from_alloc(error: alloc::collections::TryReserveError) -> Self {
+    fn from_alloc(error: allocator_api2::collections::TryReserveError) -> Self {
         Self {
             kind: TryReserveErrorKind::Std(error),
         }

@@ -8,7 +8,7 @@ use rayon::iter::plumbing::{Consumer, ProducerCallback, UnindexedConsumer};
 use rayon::prelude::*;
 
 use crate::vec::Vec;
-use alloc::boxed::Box;
+use allocator_api2::boxed::Box;
 use core::cmp::Ordering;
 use core::fmt;
 use core::hash::{BuildHasher, Hash};

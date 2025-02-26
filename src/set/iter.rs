@@ -1,13 +1,14 @@
 use super::{Bucket, Entries, IndexSet, Slice};
 
-use alloc::vec::{self, Vec};
+use allocator_api2::alloc::{Allocator, Global};
+use allocator_api2::vec::{self, Vec};
 use core::fmt;
 use core::hash::{BuildHasher, Hash};
 use core::iter::{Chain, FusedIterator};
 use core::ops::RangeBounds;
 use core::slice::Iter as SliceIter;
 
-impl<'a, T, S> IntoIterator for &'a IndexSet<T, S> {
+impl<'a, T, S, A: Allocator> IntoIterator for &'a IndexSet<T, S, A> {
     type Item = &'a T;
     type IntoIter = Iter<'a, T>;
 
@@ -16,9 +17,9 @@ impl<'a, T, S> IntoIterator for &'a IndexSet<T, S> {
     }
 }
 
-impl<T, S> IntoIterator for IndexSet<T, S> {
+impl<T, S, A: Allocator> IntoIterator for IndexSet<T, S, A> {
     type Item = T;
-    type IntoIter = IntoIter<T>;
+    type IntoIter = IntoIter<T, A>;
 
     fn into_iter(self) -> Self::IntoIter {
         IntoIter::new(self.into_entries())
@@ -89,12 +90,12 @@ impl<T> Default for Iter<'_, T> {
 /// This `struct` is created by the [`IndexSet::into_iter`] method
 /// (provided by the [`IntoIterator`] trait). See its documentation for more.
 #[derive(Clone)]
-pub struct IntoIter<T> {
-    iter: vec::IntoIter<Bucket<T>>,
+pub struct IntoIter<T, A: Allocator> {
+    iter: vec::IntoIter<Bucket<T>, A>,
 }
 
-impl<T> IntoIter<T> {
-    pub(super) fn new(entries: Vec<Bucket<T>>) -> Self {
+impl<T, A: Allocator> IntoIter<T, A> {
+    pub(super) fn new(entries: Vec<Bucket<T>, A>) -> Self {
         Self {
             iter: entries.into_iter(),
         }
@@ -106,32 +107,32 @@ impl<T> IntoIter<T> {
     }
 }
 
-impl<T> Iterator for IntoIter<T> {
+impl<T, A: Allocator> Iterator for IntoIter<T, A> {
     type Item = T;
 
     iterator_methods!(Bucket::key);
 }
 
-impl<T> DoubleEndedIterator for IntoIter<T> {
+impl<T, A: Allocator> DoubleEndedIterator for IntoIter<T, A> {
     double_ended_iterator_methods!(Bucket::key);
 }
 
-impl<T> ExactSizeIterator for IntoIter<T> {
+impl<T, A: Allocator> ExactSizeIterator for IntoIter<T, A> {
     fn len(&self) -> usize {
         self.iter.len()
     }
 }
 
-impl<T> FusedIterator for IntoIter<T> {}
+impl<T, A: Allocator> FusedIterator for IntoIter<T, A> {}
 
-impl<T: fmt::Debug> fmt::Debug for IntoIter<T> {
+impl<T: fmt::Debug, A: Allocator> fmt::Debug for IntoIter<T, A> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let iter = self.iter.as_slice().iter().map(Bucket::key_ref);
         f.debug_list().entries(iter).finish()
     }
 }
 
-impl<T> Default for IntoIter<T> {
+impl<T> Default for IntoIter<T, Global> {
     fn default() -> Self {
         Self {
             iter: Vec::new().into_iter(),
@@ -143,12 +144,12 @@ impl<T> Default for IntoIter<T> {
 ///
 /// This `struct` is created by the [`IndexSet::drain`] method.
 /// See its documentation for more.
-pub struct Drain<'a, T> {
-    iter: vec::Drain<'a, Bucket<T>>,
+pub struct Drain<'a, T, A: Allocator> {
+    iter: vec::Drain<'a, Bucket<T>, A>,
 }
 
-impl<'a, T> Drain<'a, T> {
-    pub(super) fn new(iter: vec::Drain<'a, Bucket<T>>) -> Self {
+impl<'a, T, A: Allocator> Drain<'a, T, A> {
+    pub(super) fn new(iter: vec::Drain<'a, Bucket<T>, A>) -> Self {
         Self { iter }
     }
 
@@ -158,25 +159,25 @@ impl<'a, T> Drain<'a, T> {
     }
 }
 
-impl<T> Iterator for Drain<'_, T> {
+impl<T, A: Allocator> Iterator for Drain<'_, T, A> {
     type Item = T;
 
     iterator_methods!(Bucket::key);
 }
 
-impl<T> DoubleEndedIterator for Drain<'_, T> {
+impl<T, A: Allocator> DoubleEndedIterator for Drain<'_, T, A> {
     double_ended_iterator_methods!(Bucket::key);
 }
 
-impl<T> ExactSizeIterator for Drain<'_, T> {
+impl<T, A: Allocator> ExactSizeIterator for Drain<'_, T, A> {
     fn len(&self) -> usize {
         self.iter.len()
     }
 }
 
-impl<T> FusedIterator for Drain<'_, T> {}
+impl<T, A: Allocator> FusedIterator for Drain<'_, T, A> {}
 
-impl<T: fmt::Debug> fmt::Debug for Drain<'_, T> {
+impl<T: fmt::Debug, A: Allocator> fmt::Debug for Drain<'_, T, A> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let iter = self.iter.as_slice().iter().map(Bucket::key_ref);
         f.debug_list().entries(iter).finish()
@@ -187,13 +188,16 @@ impl<T: fmt::Debug> fmt::Debug for Drain<'_, T> {
 ///
 /// This `struct` is created by the [`IndexSet::difference`] method.
 /// See its documentation for more.
-pub struct Difference<'a, T, S> {
+pub struct Difference<'a, T, S, A: Allocator> {
     iter: Iter<'a, T>,
-    other: &'a IndexSet<T, S>,
+    other: &'a IndexSet<T, S, A>,
 }
 
-impl<'a, T, S> Difference<'a, T, S> {
-    pub(super) fn new<S1>(set: &'a IndexSet<T, S1>, other: &'a IndexSet<T, S>) -> Self {
+impl<'a, T, S, A: Allocator> Difference<'a, T, S, A> {
+    pub(super) fn new<S1, A1: Allocator>(
+        set: &'a IndexSet<T, S1, A1>,
+        other: &'a IndexSet<T, S, A>,
+    ) -> Self {
         Self {
             iter: set.iter(),
             other,
@@ -201,10 +205,11 @@ impl<'a, T, S> Difference<'a, T, S> {
     }
 }
 
-impl<'a, T, S> Iterator for Difference<'a, T, S>
+impl<'a, T, S, A> Iterator for Difference<'a, T, S, A>
 where
     T: Eq + Hash,
     S: BuildHasher,
+    A: Allocator,
 {
     type Item = &'a T;
 
@@ -222,10 +227,11 @@ where
     }
 }
 
-impl<T, S> DoubleEndedIterator for Difference<'_, T, S>
+impl<T, S, A> DoubleEndedIterator for Difference<'_, T, S, A>
 where
     T: Eq + Hash,
     S: BuildHasher,
+    A: Allocator,
 {
     fn next_back(&mut self) -> Option<Self::Item> {
         while let Some(item) = self.iter.next_back() {
@@ -237,14 +243,15 @@ where
     }
 }
 
-impl<T, S> FusedIterator for Difference<'_, T, S>
+impl<T, S, A> FusedIterator for Difference<'_, T, S, A>
 where
     T: Eq + Hash,
     S: BuildHasher,
+    A: Allocator,
 {
 }
 
-impl<T, S> Clone for Difference<'_, T, S> {
+impl<T, S, A: Allocator> Clone for Difference<'_, T, S, A> {
     fn clone(&self) -> Self {
         Difference {
             iter: self.iter.clone(),
@@ -253,10 +260,11 @@ impl<T, S> Clone for Difference<'_, T, S> {
     }
 }
 
-impl<T, S> fmt::Debug for Difference<'_, T, S>
+impl<T, S, A> fmt::Debug for Difference<'_, T, S, A>
 where
     T: fmt::Debug + Eq + Hash,
     S: BuildHasher,
+    A: Allocator,
 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_list().entries(self.clone()).finish()
@@ -267,13 +275,16 @@ where
 ///
 /// This `struct` is created by the [`IndexSet::intersection`] method.
 /// See its documentation for more.
-pub struct Intersection<'a, T, S> {
+pub struct Intersection<'a, T, S, A: Allocator> {
     iter: Iter<'a, T>,
-    other: &'a IndexSet<T, S>,
+    other: &'a IndexSet<T, S, A>,
 }
 
-impl<'a, T, S> Intersection<'a, T, S> {
-    pub(super) fn new<S1>(set: &'a IndexSet<T, S1>, other: &'a IndexSet<T, S>) -> Self {
+impl<'a, T, S, A: Allocator> Intersection<'a, T, S, A> {
+    pub(super) fn new<S1, A1: Allocator>(
+        set: &'a IndexSet<T, S1, A1>,
+        other: &'a IndexSet<T, S, A>,
+    ) -> Self {
         Self {
             iter: set.iter(),
             other,
@@ -281,10 +292,11 @@ impl<'a, T, S> Intersection<'a, T, S> {
     }
 }
 
-impl<'a, T, S> Iterator for Intersection<'a, T, S>
+impl<'a, T, S, A> Iterator for Intersection<'a, T, S, A>
 where
     T: Eq + Hash,
     S: BuildHasher,
+    A: Allocator,
 {
     type Item = &'a T;
 
@@ -302,10 +314,11 @@ where
     }
 }
 
-impl<T, S> DoubleEndedIterator for Intersection<'_, T, S>
+impl<T, S, A> DoubleEndedIterator for Intersection<'_, T, S, A>
 where
     T: Eq + Hash,
     S: BuildHasher,
+    A: Allocator,
 {
     fn next_back(&mut self) -> Option<Self::Item> {
         while let Some(item) = self.iter.next_back() {
@@ -317,14 +330,15 @@ where
     }
 }
 
-impl<T, S> FusedIterator for Intersection<'_, T, S>
+impl<T, S, A> FusedIterator for Intersection<'_, T, S, A>
 where
     T: Eq + Hash,
     S: BuildHasher,
+    A: Allocator,
 {
 }
 
-impl<T, S> Clone for Intersection<'_, T, S> {
+impl<T, S, A: Allocator> Clone for Intersection<'_, T, S, A> {
     fn clone(&self) -> Self {
         Intersection {
             iter: self.iter.clone(),
@@ -333,10 +347,11 @@ impl<T, S> Clone for Intersection<'_, T, S> {
     }
 }
 
-impl<T, S> fmt::Debug for Intersection<'_, T, S>
+impl<T, S, A> fmt::Debug for Intersection<'_, T, S, A>
 where
     T: fmt::Debug + Eq + Hash,
     S: BuildHasher,
+    A: Allocator,
 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_list().entries(self.clone()).finish()
@@ -347,17 +362,19 @@ where
 ///
 /// This `struct` is created by the [`IndexSet::symmetric_difference`] method.
 /// See its documentation for more.
-pub struct SymmetricDifference<'a, T, S1, S2> {
-    iter: Chain<Difference<'a, T, S2>, Difference<'a, T, S1>>,
+pub struct SymmetricDifference<'a, T, S1, S2, A1: Allocator, A2: Allocator> {
+    iter: Chain<Difference<'a, T, S2, A2>, Difference<'a, T, S1, A1>>,
 }
 
-impl<'a, T, S1, S2> SymmetricDifference<'a, T, S1, S2>
+impl<'a, T, S1, S2, A1, A2> SymmetricDifference<'a, T, S1, S2, A1, A2>
 where
     T: Eq + Hash,
     S1: BuildHasher,
     S2: BuildHasher,
+    A1: Allocator,
+    A2: Allocator,
 {
-    pub(super) fn new(set1: &'a IndexSet<T, S1>, set2: &'a IndexSet<T, S2>) -> Self {
+    pub(super) fn new(set1: &'a IndexSet<T, S1, A1>, set2: &'a IndexSet<T, S2, A2>) -> Self {
         let diff1 = set1.difference(set2);
         let diff2 = set2.difference(set1);
         Self {
@@ -366,11 +383,13 @@ where
     }
 }
 
-impl<'a, T, S1, S2> Iterator for SymmetricDifference<'a, T, S1, S2>
+impl<'a, T, S1, S2, A1, A2> Iterator for SymmetricDifference<'a, T, S1, S2, A1, A2>
 where
     T: Eq + Hash,
     S1: BuildHasher,
     S2: BuildHasher,
+    A1: Allocator,
+    A2: Allocator,
 {
     type Item = &'a T;
 
@@ -390,11 +409,13 @@ where
     }
 }
 
-impl<T, S1, S2> DoubleEndedIterator for SymmetricDifference<'_, T, S1, S2>
+impl<T, S1, S2, A1, A2> DoubleEndedIterator for SymmetricDifference<'_, T, S1, S2, A1, A2>
 where
     T: Eq + Hash,
     S1: BuildHasher,
     S2: BuildHasher,
+    A1: Allocator,
+    A2: Allocator,
 {
     fn next_back(&mut self) -> Option<Self::Item> {
         self.iter.next_back()
@@ -408,15 +429,17 @@ where
     }
 }
 
-impl<T, S1, S2> FusedIterator for SymmetricDifference<'_, T, S1, S2>
+impl<T, S1, S2, A1, A2> FusedIterator for SymmetricDifference<'_, T, S1, S2, A1, A2>
 where
     T: Eq + Hash,
     S1: BuildHasher,
     S2: BuildHasher,
+    A1: Allocator,
+    A2: Allocator,
 {
 }
 
-impl<T, S1, S2> Clone for SymmetricDifference<'_, T, S1, S2> {
+impl<T, S1, S2, A1: Allocator, A2: Allocator> Clone for SymmetricDifference<'_, T, S1, S2, A1, A2> {
     fn clone(&self) -> Self {
         SymmetricDifference {
             iter: self.iter.clone(),
@@ -424,11 +447,13 @@ impl<T, S1, S2> Clone for SymmetricDifference<'_, T, S1, S2> {
     }
 }
 
-impl<T, S1, S2> fmt::Debug for SymmetricDifference<'_, T, S1, S2>
+impl<T, S1, S2, A1, A2> fmt::Debug for SymmetricDifference<'_, T, S1, S2, A1, A2>
 where
     T: fmt::Debug + Eq + Hash,
     S1: BuildHasher,
     S2: BuildHasher,
+    A1: Allocator,
+    A2: Allocator,
 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_list().entries(self.clone()).finish()
@@ -439,18 +464,20 @@ where
 ///
 /// This `struct` is created by the [`IndexSet::union`] method.
 /// See its documentation for more.
-pub struct Union<'a, T, S> {
-    iter: Chain<Iter<'a, T>, Difference<'a, T, S>>,
+pub struct Union<'a, T, S, A: Allocator> {
+    iter: Chain<Iter<'a, T>, Difference<'a, T, S, A>>,
 }
 
-impl<'a, T, S> Union<'a, T, S>
+impl<'a, T, S, A> Union<'a, T, S, A>
 where
     T: Eq + Hash,
     S: BuildHasher,
+    A: Allocator,
 {
-    pub(super) fn new<S2>(set1: &'a IndexSet<T, S>, set2: &'a IndexSet<T, S2>) -> Self
+    pub(super) fn new<S2, A2>(set1: &'a IndexSet<T, S, A>, set2: &'a IndexSet<T, S2, A2>) -> Self
     where
         S2: BuildHasher,
+        A2: Allocator,
     {
         Self {
             iter: set1.iter().chain(set2.difference(set1)),
@@ -458,10 +485,11 @@ where
     }
 }
 
-impl<'a, T, S> Iterator for Union<'a, T, S>
+impl<'a, T, S, A> Iterator for Union<'a, T, S, A>
 where
     T: Eq + Hash,
     S: BuildHasher,
+    A: Allocator,
 {
     type Item = &'a T;
 
@@ -481,10 +509,11 @@ where
     }
 }
 
-impl<T, S> DoubleEndedIterator for Union<'_, T, S>
+impl<T, S, A> DoubleEndedIterator for Union<'_, T, S, A>
 where
     T: Eq + Hash,
     S: BuildHasher,
+    A: Allocator,
 {
     fn next_back(&mut self) -> Option<Self::Item> {
         self.iter.next_back()
@@ -498,14 +527,15 @@ where
     }
 }
 
-impl<T, S> FusedIterator for Union<'_, T, S>
+impl<T, S, A> FusedIterator for Union<'_, T, S, A>
 where
     T: Eq + Hash,
     S: BuildHasher,
+    A: Allocator,
 {
 }
 
-impl<T, S> Clone for Union<'_, T, S> {
+impl<T, S, A: Allocator> Clone for Union<'_, T, S, A> {
     fn clone(&self) -> Self {
         Union {
             iter: self.iter.clone(),
@@ -513,10 +543,11 @@ impl<T, S> Clone for Union<'_, T, S> {
     }
 }
 
-impl<T, S> fmt::Debug for Union<'_, T, S>
+impl<T, S, A> fmt::Debug for Union<'_, T, S, A>
 where
     T: fmt::Debug + Eq + Hash,
     S: BuildHasher,
+    A: Allocator,
 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_list().entries(self.clone()).finish()
@@ -527,23 +558,25 @@ where
 ///
 /// This `struct` is created by [`IndexSet::splice()`].
 /// See its documentation for more.
-pub struct Splice<'a, I, T, S>
+pub struct Splice<'a, I, T, S, A>
 where
     I: Iterator<Item = T>,
     T: Hash + Eq,
     S: BuildHasher,
+    A: Allocator,
 {
-    iter: crate::map::Splice<'a, UnitValue<I>, T, (), S>,
+    iter: crate::map::Splice<'a, UnitValue<I>, T, (), S, A>,
 }
 
-impl<'a, I, T, S> Splice<'a, I, T, S>
+impl<'a, I, T, S, A> Splice<'a, I, T, S, A>
 where
     I: Iterator<Item = T>,
     T: Hash + Eq,
     S: BuildHasher,
+    A: Allocator + Clone,
 {
     #[track_caller]
-    pub(super) fn new<R>(set: &'a mut IndexSet<T, S>, range: R, replace_with: I) -> Self
+    pub(super) fn new<R>(set: &'a mut IndexSet<T, S, A>, range: R, replace_with: I) -> Self
     where
         R: RangeBounds<usize>,
     {
@@ -553,11 +586,12 @@ where
     }
 }
 
-impl<I, T, S> Iterator for Splice<'_, I, T, S>
+impl<I, T, S, A> Iterator for Splice<'_, I, T, S, A>
 where
     I: Iterator<Item = T>,
     T: Hash + Eq,
     S: BuildHasher,
+    A: Allocator,
 {
     type Item = T;
 
@@ -570,33 +604,36 @@ where
     }
 }
 
-impl<I, T, S> DoubleEndedIterator for Splice<'_, I, T, S>
+impl<I, T, S, A> DoubleEndedIterator for Splice<'_, I, T, S, A>
 where
     I: Iterator<Item = T>,
     T: Hash + Eq,
     S: BuildHasher,
+    A: Allocator,
 {
     fn next_back(&mut self) -> Option<Self::Item> {
         Some(self.iter.next_back()?.0)
     }
 }
 
-impl<I, T, S> ExactSizeIterator for Splice<'_, I, T, S>
+impl<I, T, S, A> ExactSizeIterator for Splice<'_, I, T, S, A>
 where
     I: Iterator<Item = T>,
     T: Hash + Eq,
     S: BuildHasher,
+    A: Allocator,
 {
     fn len(&self) -> usize {
         self.iter.len()
     }
 }
 
-impl<I, T, S> FusedIterator for Splice<'_, I, T, S>
+impl<I, T, S, A> FusedIterator for Splice<'_, I, T, S, A>
 where
     I: Iterator<Item = T>,
     T: Hash + Eq,
     S: BuildHasher,
+    A: Allocator,
 {
 }
 
@@ -610,11 +647,12 @@ impl<I: Iterator> Iterator for UnitValue<I> {
     }
 }
 
-impl<'a, I, T, S> fmt::Debug for Splice<'a, I, T, S>
+impl<'a, I, T, S, A> fmt::Debug for Splice<'a, I, T, S, A>
 where
     I: fmt::Debug + Iterator<Item = T>,
     T: fmt::Debug + Hash + Eq,
     S: BuildHasher,
+    A: Allocator,
 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         fmt::Debug::fmt(&self.iter, f)

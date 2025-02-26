@@ -1,8 +1,8 @@
-use super::{Bucket, Entries, IndexSet, IntoIter, Iter};
+use super::{Bucket, Entries, IndexSet, Iter};
 use crate::util::try_simplify_range;
 
-use alloc::boxed::Box;
-use alloc::vec::Vec;
+use allocator_api2::alloc::Allocator;
+use allocator_api2::boxed::Box;
 use core::cmp::Ordering;
 use core::fmt;
 use core::hash::{Hash, Hasher};
@@ -28,19 +28,20 @@ impl<T> Slice<T> {
         unsafe { &*(entries as *const [Bucket<T>] as *const Self) }
     }
 
-    pub(super) fn from_boxed(entries: Box<[Bucket<T>]>) -> Box<Self> {
-        unsafe { Box::from_raw(Box::into_raw(entries) as *mut Self) }
+    pub(super) fn from_boxed<A: Allocator + Clone>(entries: Box<[Bucket<T>], A>) -> Box<Self, A> {
+        let allocator = Box::allocator(&entries).clone();
+        unsafe { Box::from_raw_in(Box::into_raw(entries) as *mut Self, allocator) }
     }
 
-    fn into_boxed(self: Box<Self>) -> Box<[Bucket<T>]> {
-        unsafe { Box::from_raw(Box::into_raw(self) as *mut [Bucket<T>]) }
-    }
+    // fn into_boxed(this: Box<Self>) -> Box<[Bucket<T>]> {
+    //     unsafe { Box::from_raw(Box::into_raw(this) as *mut [Bucket<T>]) }
+    // }
 }
 
 impl<T> Slice<T> {
-    pub(crate) fn into_entries(self: Box<Self>) -> Vec<Bucket<T>> {
-        self.into_boxed().into_vec()
-    }
+    // pub(crate) fn into_entries(this: Box<Self>) -> Vec<Bucket<T>> {
+    //     Self::into_boxed(this).into_vec()
+    // }
 
     /// Returns an empty slice.
     pub const fn new<'a>() -> &'a Self {
@@ -183,14 +184,14 @@ impl<'a, T> IntoIterator for &'a Slice<T> {
     }
 }
 
-impl<T> IntoIterator for Box<Slice<T>> {
-    type IntoIter = IntoIter<T>;
-    type Item = T;
+// impl<T> IntoIterator for Box<Slice<T>> {
+//     type IntoIter = IntoIter<T>;
+//     type Item = T;
 
-    fn into_iter(self) -> Self::IntoIter {
-        IntoIter::new(self.into_entries())
-    }
-}
+//     fn into_iter(self) -> Self::IntoIter {
+//         IntoIter::new(Slice::into_entries(self))
+//     }
+// }
 
 impl<T> Default for &'_ Slice<T> {
     fn default() -> Self {
@@ -198,17 +199,23 @@ impl<T> Default for &'_ Slice<T> {
     }
 }
 
-impl<T> Default for Box<Slice<T>> {
-    fn default() -> Self {
-        Slice::from_boxed(Box::default())
-    }
-}
+// impl<T> Default for Box<Slice<T>> {
+//     fn default() -> Self {
+//         Slice::from_boxed(Box::default())
+//     }
+// }
 
-impl<T: Clone> Clone for Box<Slice<T>> {
-    fn clone(&self) -> Self {
-        Slice::from_boxed(self.entries.to_vec().into_boxed_slice())
-    }
-}
+// impl<T: Clone> Clone for Box<Slice<T>> {
+//     fn clone(&self) -> Self {
+//         Slice::from_boxed(
+//             self.entries
+//                 .iter()
+//                 .map(|e| (*e).clone())
+//                 .collect::<Vec<_>>()
+//                 .into_boxed_slice(),
+//         )
+//     }
+// }
 
 impl<T: Copy> From<&Slice<T>> for Box<Slice<T>> {
     fn from(slice: &Slice<T>) -> Self {

@@ -1,5 +1,7 @@
 use core::hash::{BuildHasher, Hash};
 
+use allocator_api2::alloc::Allocator;
+
 use super::{
     Bucket, Entries, Entry, Equivalent, IndexMap, IndexedEntry, IterMut2, OccupiedEntry,
     VacantEntry,
@@ -115,7 +117,7 @@ pub trait MutableEntryKey: private::Sealed {
 /// Opt-in mutable access to [`Entry`] keys.
 ///
 /// See [`MutableEntryKey`] for more information.
-impl<K, V> MutableEntryKey for Entry<'_, K, V> {
+impl<K, V, A: Allocator> MutableEntryKey for Entry<'_, K, V, A> {
     type Key = K;
     fn key_mut(&mut self) -> &mut Self::Key {
         match self {
@@ -128,7 +130,7 @@ impl<K, V> MutableEntryKey for Entry<'_, K, V> {
 /// Opt-in mutable access to [`OccupiedEntry`] keys.
 ///
 /// See [`MutableEntryKey`] for more information.
-impl<K, V> MutableEntryKey for OccupiedEntry<'_, K, V> {
+impl<K, V, A: Allocator> MutableEntryKey for OccupiedEntry<'_, K, V, A> {
     type Key = K;
     fn key_mut(&mut self) -> &mut Self::Key {
         self.key_mut()
@@ -138,7 +140,7 @@ impl<K, V> MutableEntryKey for OccupiedEntry<'_, K, V> {
 /// Opt-in mutable access to [`VacantEntry`] keys.
 ///
 /// See [`MutableEntryKey`] for more information.
-impl<K, V> MutableEntryKey for VacantEntry<'_, K, V> {
+impl<K, V, A: Allocator> MutableEntryKey for VacantEntry<'_, K, V, A> {
     type Key = K;
     fn key_mut(&mut self) -> &mut Self::Key {
         self.key_mut()
@@ -148,7 +150,7 @@ impl<K, V> MutableEntryKey for VacantEntry<'_, K, V> {
 /// Opt-in mutable access to [`IndexedEntry`] keys.
 ///
 /// See [`MutableEntryKey`] for more information.
-impl<K, V> MutableEntryKey for IndexedEntry<'_, K, V> {
+impl<K, V, A: Allocator> MutableEntryKey for IndexedEntry<'_, K, V, A> {
     type Key = K;
     fn key_mut(&mut self) -> &mut Self::Key {
         self.key_mut()
@@ -156,11 +158,13 @@ impl<K, V> MutableEntryKey for IndexedEntry<'_, K, V> {
 }
 
 mod private {
+    use allocator_api2::alloc::Allocator;
+
     pub trait Sealed {}
 
     impl<K, V, S> Sealed for super::IndexMap<K, V, S> {}
-    impl<K, V> Sealed for super::Entry<'_, K, V> {}
-    impl<K, V> Sealed for super::OccupiedEntry<'_, K, V> {}
-    impl<K, V> Sealed for super::VacantEntry<'_, K, V> {}
-    impl<K, V> Sealed for super::IndexedEntry<'_, K, V> {}
+    impl<K, V, A: Allocator> Sealed for super::Entry<'_, K, V, A> {}
+    impl<K, V, A: Allocator> Sealed for super::OccupiedEntry<'_, K, V, A> {}
+    impl<K, V, A: Allocator> Sealed for super::VacantEntry<'_, K, V, A> {}
+    impl<K, V, A: Allocator> Sealed for super::IndexedEntry<'_, K, V, A> {}
 }

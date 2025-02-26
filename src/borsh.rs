@@ -1,6 +1,6 @@
 #![cfg_attr(docsrs, doc(cfg(feature = "borsh")))]
 
-use alloc::vec::Vec;
+use allocator_api2::vec::Vec;
 use core::hash::BuildHasher;
 use core::hash::Hash;
 use core::mem::size_of;

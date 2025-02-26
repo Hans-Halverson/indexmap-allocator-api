@@ -26,9 +26,11 @@ rayon = { version = "1.9", optional = true }
 # not part of the stable interface of this crate.
 rustc-rayon = { package = "rustc-rayon", version = "0.5", optional = true }
 
+allocator-api2 = "0.2.21"
+
 [dependencies.hashbrown]
 version = "0.15.0"
-default-features = false
+features = ["allocator-api2"]
 
 [dev-dependencies]
 itertools = "0.13"

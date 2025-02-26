@@ -39,8 +39,8 @@ mod impl_arbitrary {
 #[cfg_attr(docsrs, doc(cfg(feature = "quickcheck")))]
 mod impl_quickcheck {
     use crate::{IndexMap, IndexSet};
-    use alloc::boxed::Box;
-    use alloc::vec::Vec;
+    use allocator_api2::boxed::Box;
+    use allocator_api2::vec::Vec;
     use core::hash::{BuildHasher, Hash};
     use quickcheck::{Arbitrary, Gen};
 

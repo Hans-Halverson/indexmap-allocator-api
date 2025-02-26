@@ -11,6 +11,7 @@
 
 use super::{Entries, RefMut};
 use crate::{Equivalent, HashValue, IndexMap};
+use allocator_api2::alloc::Allocator;
 use core::fmt;
 use core::hash::{BuildHasher, Hash, Hasher};
 use core::marker::PhantomData;
@@ -20,7 +21,7 @@ use hashbrown::hash_table;
 /// Opt-in access to the experimental raw entry API.
 ///
 /// See the [`raw_entry_v1`][self] module documentation for more information.
-pub trait RawEntryApiV1<K, V, S>: private::Sealed {
+pub trait RawEntryApiV1<K, V, S, A: Allocator>: private::Sealed {
     /// Creates a raw immutable entry builder for the [`IndexMap`].
     ///
     /// Raw entries provide the lowest level of control for searching and
@@ -70,7 +71,7 @@ pub trait RawEntryApiV1<K, V, S>: private::Sealed {
     ///     assert_eq!(map.raw_entry_v1().index_from_hash(hash, |q| *q == k), i);
     /// }
     /// ```
-    fn raw_entry_v1(&self) -> RawEntryBuilder<'_, K, V, S>;
+    fn raw_entry_v1(&self) -> RawEntryBuilder<'_, K, V, S, A>;
 
     /// Creates a raw entry builder for the [`IndexMap`].
     ///
@@ -169,15 +170,15 @@ pub trait RawEntryApiV1<K, V, S>: private::Sealed {
     /// assert_eq!(map.get("d"), None);
     /// assert_eq!(map.len(), 2);
     /// ```
-    fn raw_entry_mut_v1(&mut self) -> RawEntryBuilderMut<'_, K, V, S>;
+    fn raw_entry_mut_v1(&mut self) -> RawEntryBuilderMut<'_, K, V, S, A>;
 }
 
-impl<K, V, S> RawEntryApiV1<K, V, S> for IndexMap<K, V, S> {
-    fn raw_entry_v1(&self) -> RawEntryBuilder<'_, K, V, S> {
+impl<K, V, S, A: Allocator> RawEntryApiV1<K, V, S, A> for IndexMap<K, V, S, A> {
+    fn raw_entry_v1(&self) -> RawEntryBuilder<'_, K, V, S, A> {
         RawEntryBuilder { map: self }
     }
 
-    fn raw_entry_mut_v1(&mut self) -> RawEntryBuilderMut<'_, K, V, S> {
+    fn raw_entry_mut_v1(&mut self) -> RawEntryBuilderMut<'_, K, V, S, A> {
         RawEntryBuilderMut { map: self }
     }
 }
@@ -186,17 +187,17 @@ impl<K, V, S> RawEntryApiV1<K, V, S> for IndexMap<K, V, S> {
 ///
 /// This `struct` is created by the [`IndexMap::raw_entry_v1`] method, provided by the
 /// [`RawEntryApiV1`] trait. See its documentation for more.
-pub struct RawEntryBuilder<'a, K, V, S> {
-    map: &'a IndexMap<K, V, S>,
+pub struct RawEntryBuilder<'a, K, V, S, A: Allocator> {
+    map: &'a IndexMap<K, V, S, A>,
 }
 
-impl<K, V, S> fmt::Debug for RawEntryBuilder<'_, K, V, S> {
+impl<K, V, S, A: Allocator> fmt::Debug for RawEntryBuilder<'_, K, V, S, A> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("RawEntryBuilder").finish_non_exhaustive()
     }
 }
 
-impl<'a, K, V, S> RawEntryBuilder<'a, K, V, S> {
+impl<'a, K, V, S, A: Allocator> RawEntryBuilder<'a, K, V, S, A> {
     /// Access an entry by key.
     pub fn from_key<Q>(self, key: &Q) -> Option<(&'a K, &'a V)>
     where
@@ -253,19 +254,19 @@ impl<'a, K, V, S> RawEntryBuilder<'a, K, V, S> {
 ///
 /// This `struct` is created by the [`IndexMap::raw_entry_mut_v1`] method, provided by the
 /// [`RawEntryApiV1`] trait. See its documentation for more.
-pub struct RawEntryBuilderMut<'a, K, V, S> {
-    map: &'a mut IndexMap<K, V, S>,
+pub struct RawEntryBuilderMut<'a, K, V, S, A: Allocator> {
+    map: &'a mut IndexMap<K, V, S, A>,
 }
 
-impl<K, V, S> fmt::Debug for RawEntryBuilderMut<'_, K, V, S> {
+impl<K, V, S, A: Allocator> fmt::Debug for RawEntryBuilderMut<'_, K, V, S, A> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("RawEntryBuilderMut").finish_non_exhaustive()
     }
 }
 
-impl<'a, K, V, S> RawEntryBuilderMut<'a, K, V, S> {
+impl<'a, K, V, S, A: Allocator> RawEntryBuilderMut<'a, K, V, S, A> {
     /// Access an entry by key.
-    pub fn from_key<Q>(self, key: &Q) -> RawEntryMut<'a, K, V, S>
+    pub fn from_key<Q>(self, key: &Q) -> RawEntryMut<'a, K, V, S, A>
     where
         S: BuildHasher,
         Q: ?Sized + Hash + Equivalent<K>,
@@ -275,7 +276,7 @@ impl<'a, K, V, S> RawEntryBuilderMut<'a, K, V, S> {
     }
 
     /// Access an entry by a key and its hash.
-    pub fn from_key_hashed_nocheck<Q>(self, hash: u64, key: &Q) -> RawEntryMut<'a, K, V, S>
+    pub fn from_key_hashed_nocheck<Q>(self, hash: u64, key: &Q) -> RawEntryMut<'a, K, V, S, A>
     where
         Q: ?Sized + Equivalent<K>,
     {
@@ -283,7 +284,7 @@ impl<'a, K, V, S> RawEntryBuilderMut<'a, K, V, S> {
     }
 
     /// Access an entry by hash.
-    pub fn from_hash<F>(self, hash: u64, mut is_match: F) -> RawEntryMut<'a, K, V, S>
+    pub fn from_hash<F>(self, hash: u64, mut is_match: F) -> RawEntryMut<'a, K, V, S, A>
     where
         F: FnMut(&K) -> bool,
     {
@@ -305,14 +306,14 @@ impl<'a, K, V, S> RawEntryBuilderMut<'a, K, V, S> {
 
 /// Raw entry for an existing key-value pair or a vacant location to
 /// insert one.
-pub enum RawEntryMut<'a, K, V, S> {
+pub enum RawEntryMut<'a, K, V, S, A: Allocator> {
     /// Existing slot with equivalent key.
-    Occupied(RawOccupiedEntryMut<'a, K, V, S>),
+    Occupied(RawOccupiedEntryMut<'a, K, V, S, A>),
     /// Vacant slot (no equivalent key in the map).
-    Vacant(RawVacantEntryMut<'a, K, V, S>),
+    Vacant(RawVacantEntryMut<'a, K, V, S, A>),
 }
 
-impl<K: fmt::Debug, V: fmt::Debug, S> fmt::Debug for RawEntryMut<'_, K, V, S> {
+impl<K: fmt::Debug, V: fmt::Debug, S, A: Allocator> fmt::Debug for RawEntryMut<'_, K, V, S, A> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let mut tuple = f.debug_tuple("RawEntryMut");
         match self {
@@ -323,7 +324,7 @@ impl<K: fmt::Debug, V: fmt::Debug, S> fmt::Debug for RawEntryMut<'_, K, V, S> {
     }
 }
 
-impl<'a, K, V, S> RawEntryMut<'a, K, V, S> {
+impl<'a, K, V, S, A: Allocator> RawEntryMut<'a, K, V, S, A> {
     /// Return the index where the key-value pair exists or may be inserted.
     #[inline]
     pub fn index(&self) -> usize {
@@ -378,13 +379,15 @@ impl<'a, K, V, S> RawEntryMut<'a, K, V, S> {
 
 /// A raw view into an occupied entry in an [`IndexMap`].
 /// It is part of the [`RawEntryMut`] enum.
-pub struct RawOccupiedEntryMut<'a, K, V, S> {
-    entries: &'a mut Entries<K, V>,
-    index: hash_table::OccupiedEntry<'a, usize>,
+pub struct RawOccupiedEntryMut<'a, K, V, S, A: Allocator> {
+    entries: &'a mut Entries<K, V, A>,
+    index: hash_table::OccupiedEntry<'a, usize, A>,
     hash_builder: PhantomData<&'a S>,
 }
 
-impl<K: fmt::Debug, V: fmt::Debug, S> fmt::Debug for RawOccupiedEntryMut<'_, K, V, S> {
+impl<K: fmt::Debug, V: fmt::Debug, S, A: Allocator> fmt::Debug
+    for RawOccupiedEntryMut<'_, K, V, S, A>
+{
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("RawOccupiedEntryMut")
             .field("key", self.key())
@@ -393,7 +396,7 @@ impl<K: fmt::Debug, V: fmt::Debug, S> fmt::Debug for RawOccupiedEntryMut<'_, K, 
     }
 }
 
-impl<'a, K, V, S> RawOccupiedEntryMut<'a, K, V, S> {
+impl<'a, K, V, S, A: Allocator> RawOccupiedEntryMut<'a, K, V, S, A> {
     /// Return the index of the key-value pair
     #[inline]
     pub fn index(&self) -> usize {
@@ -401,7 +404,7 @@ impl<'a, K, V, S> RawOccupiedEntryMut<'a, K, V, S> {
     }
 
     #[inline]
-    fn into_ref_mut(self) -> RefMut<'a, K, V> {
+    fn into_ref_mut(self) -> RefMut<'a, K, V, A> {
         RefMut::new(self.index.into_table(), self.entries)
     }
 
@@ -587,18 +590,18 @@ impl<'a, K, V, S> RawOccupiedEntryMut<'a, K, V, S> {
 
 /// A view into a vacant raw entry in an [`IndexMap`].
 /// It is part of the [`RawEntryMut`] enum.
-pub struct RawVacantEntryMut<'a, K, V, S> {
-    map: RefMut<'a, K, V>,
+pub struct RawVacantEntryMut<'a, K, V, S, A: Allocator> {
+    map: RefMut<'a, K, V, A>,
     hash_builder: &'a S,
 }
 
-impl<K, V, S> fmt::Debug for RawVacantEntryMut<'_, K, V, S> {
+impl<K, V, S, A: Allocator> fmt::Debug for RawVacantEntryMut<'_, K, V, S, A> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("RawVacantEntryMut").finish_non_exhaustive()
     }
 }
 
-impl<'a, K, V, S> RawVacantEntryMut<'a, K, V, S> {
+impl<'a, K, V, S, A: Allocator> RawVacantEntryMut<'a, K, V, S, A> {
     /// Return the index where a key-value pair may be inserted.
     pub fn index(&self) -> usize {
         self.map.indices.len()
@@ -659,7 +662,9 @@ impl<'a, K, V, S> RawVacantEntryMut<'a, K, V, S> {
 }
 
 mod private {
+    use allocator_api2::alloc::Allocator;
+
     pub trait Sealed {}
 
-    impl<K, V, S> Sealed for super::IndexMap<K, V, S> {}
+    impl<K, V, S, A: Allocator> Sealed for super::IndexMap<K, V, S, A> {}
 }

@@ -1,14 +1,15 @@
 use super::core::IndexMapCore;
 use super::{Bucket, Entries, IndexMap, Slice};
 
-use alloc::vec::{self, Vec};
+use allocator_api2::alloc::{Allocator, Global};
+use allocator_api2::vec::{self, Vec};
 use core::fmt;
 use core::hash::{BuildHasher, Hash};
 use core::iter::FusedIterator;
 use core::ops::{Index, RangeBounds};
 use core::slice;
 
-impl<'a, K, V, S> IntoIterator for &'a IndexMap<K, V, S> {
+impl<'a, K, V, S, A: Allocator> IntoIterator for &'a IndexMap<K, V, S, A> {
     type Item = (&'a K, &'a V);
     type IntoIter = Iter<'a, K, V>;
 
@@ -17,7 +18,7 @@ impl<'a, K, V, S> IntoIterator for &'a IndexMap<K, V, S> {
     }
 }
 
-impl<'a, K, V, S> IntoIterator for &'a mut IndexMap<K, V, S> {
+impl<'a, K, V, S, A: Allocator> IntoIterator for &'a mut IndexMap<K, V, S, A> {
     type Item = (&'a K, &'a mut V);
     type IntoIter = IterMut<'a, K, V>;
 
@@ -26,9 +27,9 @@ impl<'a, K, V, S> IntoIterator for &'a mut IndexMap<K, V, S> {
     }
 }
 
-impl<K, V, S> IntoIterator for IndexMap<K, V, S> {
+impl<K, V, S, A: Allocator> IntoIterator for IndexMap<K, V, S, A> {
     type Item = (K, V);
-    type IntoIter = IntoIter<K, V>;
+    type IntoIter = IntoIter<K, V, A>;
 
     fn into_iter(self) -> Self::IntoIter {
         IntoIter::new(self.into_entries())
@@ -222,12 +223,12 @@ impl<K, V> Default for IterMut2<'_, K, V> {
 /// This `struct` is created by the [`IndexMap::into_iter`] method
 /// (provided by the [`IntoIterator`] trait). See its documentation for more.
 #[derive(Clone)]
-pub struct IntoIter<K, V> {
-    iter: vec::IntoIter<Bucket<K, V>>,
+pub struct IntoIter<K, V, A: Allocator> {
+    iter: vec::IntoIter<Bucket<K, V>, A>,
 }
 
-impl<K, V> IntoIter<K, V> {
-    pub(super) fn new(entries: Vec<Bucket<K, V>>) -> Self {
+impl<K, V, A: Allocator> IntoIter<K, V, A> {
+    pub(super) fn new(entries: Vec<Bucket<K, V>, A>) -> Self {
         Self {
             iter: entries.into_iter(),
         }
@@ -244,32 +245,32 @@ impl<K, V> IntoIter<K, V> {
     }
 }
 
-impl<K, V> Iterator for IntoIter<K, V> {
+impl<K, V, A: Allocator> Iterator for IntoIter<K, V, A> {
     type Item = (K, V);
 
     iterator_methods!(Bucket::key_value);
 }
 
-impl<K, V> DoubleEndedIterator for IntoIter<K, V> {
+impl<K, V, A: Allocator> DoubleEndedIterator for IntoIter<K, V, A> {
     double_ended_iterator_methods!(Bucket::key_value);
 }
 
-impl<K, V> ExactSizeIterator for IntoIter<K, V> {
+impl<K, V, A: Allocator> ExactSizeIterator for IntoIter<K, V, A> {
     fn len(&self) -> usize {
         self.iter.len()
     }
 }
 
-impl<K, V> FusedIterator for IntoIter<K, V> {}
+impl<K, V, A: Allocator> FusedIterator for IntoIter<K, V, A> {}
 
-impl<K: fmt::Debug, V: fmt::Debug> fmt::Debug for IntoIter<K, V> {
+impl<K: fmt::Debug, V: fmt::Debug, A: Allocator> fmt::Debug for IntoIter<K, V, A> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let iter = self.iter.as_slice().iter().map(Bucket::refs);
         f.debug_list().entries(iter).finish()
     }
 }
 
-impl<K, V> Default for IntoIter<K, V> {
+impl<K, V> Default for IntoIter<K, V, Global> {
     fn default() -> Self {
         Self {
             iter: Vec::new().into_iter(),
@@ -281,12 +282,12 @@ impl<K, V> Default for IntoIter<K, V> {
 ///
 /// This `struct` is created by the [`IndexMap::drain`] method.
 /// See its documentation for more.
-pub struct Drain<'a, K, V> {
-    iter: vec::Drain<'a, Bucket<K, V>>,
+pub struct Drain<'a, K, V, A: Allocator> {
+    iter: vec::Drain<'a, Bucket<K, V>, A>,
 }
 
-impl<'a, K, V> Drain<'a, K, V> {
-    pub(super) fn new(iter: vec::Drain<'a, Bucket<K, V>>) -> Self {
+impl<'a, K, V, A: Allocator> Drain<'a, K, V, A> {
+    pub(super) fn new(iter: vec::Drain<'a, Bucket<K, V>, A>) -> Self {
         Self { iter }
     }
 
@@ -296,25 +297,25 @@ impl<'a, K, V> Drain<'a, K, V> {
     }
 }
 
-impl<K, V> Iterator for Drain<'_, K, V> {
+impl<K, V, A: Allocator> Iterator for Drain<'_, K, V, A> {
     type Item = (K, V);
 
     iterator_methods!(Bucket::key_value);
 }
 
-impl<K, V> DoubleEndedIterator for Drain<'_, K, V> {
+impl<K, V, A: Allocator> DoubleEndedIterator for Drain<'_, K, V, A> {
     double_ended_iterator_methods!(Bucket::key_value);
 }
 
-impl<K, V> ExactSizeIterator for Drain<'_, K, V> {
+impl<K, V, A: Allocator> ExactSizeIterator for Drain<'_, K, V, A> {
     fn len(&self) -> usize {
         self.iter.len()
     }
 }
 
-impl<K, V> FusedIterator for Drain<'_, K, V> {}
+impl<K, V, A: Allocator> FusedIterator for Drain<'_, K, V, A> {}
 
-impl<K: fmt::Debug, V: fmt::Debug> fmt::Debug for Drain<'_, K, V> {
+impl<K: fmt::Debug, V: fmt::Debug, A: Allocator> fmt::Debug for Drain<'_, K, V, A> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let iter = self.iter.as_slice().iter().map(Bucket::refs);
         f.debug_list().entries(iter).finish()
@@ -447,44 +448,44 @@ impl<'a, K, V> Index<usize> for Keys<'a, K, V> {
 ///
 /// This `struct` is created by the [`IndexMap::into_keys`] method.
 /// See its documentation for more.
-pub struct IntoKeys<K, V> {
-    iter: vec::IntoIter<Bucket<K, V>>,
+pub struct IntoKeys<K, V, A: Allocator> {
+    iter: vec::IntoIter<Bucket<K, V>, A>,
 }
 
-impl<K, V> IntoKeys<K, V> {
-    pub(super) fn new(entries: Vec<Bucket<K, V>>) -> Self {
+impl<K, V, A: Allocator> IntoKeys<K, V, A> {
+    pub(super) fn new(entries: Vec<Bucket<K, V>, A>) -> Self {
         Self {
             iter: entries.into_iter(),
         }
     }
 }
 
-impl<K, V> Iterator for IntoKeys<K, V> {
+impl<K, V, A: Allocator> Iterator for IntoKeys<K, V, A> {
     type Item = K;
 
     iterator_methods!(Bucket::key);
 }
 
-impl<K, V> DoubleEndedIterator for IntoKeys<K, V> {
+impl<K, V, A: Allocator> DoubleEndedIterator for IntoKeys<K, V, A> {
     double_ended_iterator_methods!(Bucket::key);
 }
 
-impl<K, V> ExactSizeIterator for IntoKeys<K, V> {
+impl<K, V, A: Allocator> ExactSizeIterator for IntoKeys<K, V, A> {
     fn len(&self) -> usize {
         self.iter.len()
     }
 }
 
-impl<K, V> FusedIterator for IntoKeys<K, V> {}
+impl<K, V, A: Allocator> FusedIterator for IntoKeys<K, V, A> {}
 
-impl<K: fmt::Debug, V> fmt::Debug for IntoKeys<K, V> {
+impl<K: fmt::Debug, V, A: Allocator> fmt::Debug for IntoKeys<K, V, A> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let iter = self.iter.as_slice().iter().map(Bucket::key_ref);
         f.debug_list().entries(iter).finish()
     }
 }
 
-impl<K, V> Default for IntoKeys<K, V> {
+impl<K, V> Default for IntoKeys<K, V, Global> {
     fn default() -> Self {
         Self {
             iter: Vec::new().into_iter(),
@@ -600,44 +601,44 @@ impl<K, V> Default for ValuesMut<'_, K, V> {
 ///
 /// This `struct` is created by the [`IndexMap::into_values`] method.
 /// See its documentation for more.
-pub struct IntoValues<K, V> {
-    iter: vec::IntoIter<Bucket<K, V>>,
+pub struct IntoValues<K, V, A: Allocator> {
+    iter: vec::IntoIter<Bucket<K, V>, A>,
 }
 
-impl<K, V> IntoValues<K, V> {
-    pub(super) fn new(entries: Vec<Bucket<K, V>>) -> Self {
+impl<K, V, A: Allocator> IntoValues<K, V, A> {
+    pub(super) fn new(entries: Vec<Bucket<K, V>, A>) -> Self {
         Self {
             iter: entries.into_iter(),
         }
     }
 }
 
-impl<K, V> Iterator for IntoValues<K, V> {
+impl<K, V, A: Allocator> Iterator for IntoValues<K, V, A> {
     type Item = V;
 
     iterator_methods!(Bucket::value);
 }
 
-impl<K, V> DoubleEndedIterator for IntoValues<K, V> {
+impl<K, V, A: Allocator> DoubleEndedIterator for IntoValues<K, V, A> {
     double_ended_iterator_methods!(Bucket::value);
 }
 
-impl<K, V> ExactSizeIterator for IntoValues<K, V> {
+impl<K, V, A: Allocator> ExactSizeIterator for IntoValues<K, V, A> {
     fn len(&self) -> usize {
         self.iter.len()
     }
 }
 
-impl<K, V> FusedIterator for IntoValues<K, V> {}
+impl<K, V, A: Allocator> FusedIterator for IntoValues<K, V, A> {}
 
-impl<K, V: fmt::Debug> fmt::Debug for IntoValues<K, V> {
+impl<K, V: fmt::Debug, A: Allocator> fmt::Debug for IntoValues<K, V, A> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let iter = self.iter.as_slice().iter().map(Bucket::value_ref);
         f.debug_list().entries(iter).finish()
     }
 }
 
-impl<K, V> Default for IntoValues<K, V> {
+impl<K, V> Default for IntoValues<K, V, Global> {
     fn default() -> Self {
         Self {
             iter: Vec::new().into_iter(),
@@ -649,26 +650,28 @@ impl<K, V> Default for IntoValues<K, V> {
 ///
 /// This `struct` is created by [`IndexMap::splice()`].
 /// See its documentation for more.
-pub struct Splice<'a, I, K, V, S>
+pub struct Splice<'a, I, K, V, S, A>
 where
     I: Iterator<Item = (K, V)>,
     K: Hash + Eq,
     S: BuildHasher,
+    A: Allocator,
 {
-    map: &'a mut IndexMap<K, V, S>,
-    tail: IndexMapCore<K, V>,
-    drain: vec::IntoIter<Bucket<K, V>>,
+    map: &'a mut IndexMap<K, V, S, A>,
+    tail: IndexMapCore<K, V, A>,
+    drain: vec::IntoIter<Bucket<K, V>, A>,
     replace_with: I,
 }
 
-impl<'a, I, K, V, S> Splice<'a, I, K, V, S>
+impl<'a, I, K, V, S, A> Splice<'a, I, K, V, S, A>
 where
     I: Iterator<Item = (K, V)>,
     K: Hash + Eq,
     S: BuildHasher,
+    A: Allocator + Clone,
 {
     #[track_caller]
-    pub(super) fn new<R>(map: &'a mut IndexMap<K, V, S>, range: R, replace_with: I) -> Self
+    pub(super) fn new<R>(map: &'a mut IndexMap<K, V, S, A>, range: R, replace_with: I) -> Self
     where
         R: RangeBounds<usize>,
     {
@@ -682,11 +685,12 @@ where
     }
 }
 
-impl<I, K, V, S> Drop for Splice<'_, I, K, V, S>
+impl<I, K, V, S, A> Drop for Splice<'_, I, K, V, S, A>
 where
     I: Iterator<Item = (K, V)>,
     K: Hash + Eq,
     S: BuildHasher,
+    A: Allocator,
 {
     fn drop(&mut self) {
         // Finish draining unconsumed items. We don't strictly *have* to do this
@@ -712,11 +716,12 @@ where
     }
 }
 
-impl<I, K, V, S> Iterator for Splice<'_, I, K, V, S>
+impl<I, K, V, S, A> Iterator for Splice<'_, I, K, V, S, A>
 where
     I: Iterator<Item = (K, V)>,
     K: Hash + Eq,
     S: BuildHasher,
+    A: Allocator,
 {
     type Item = (K, V);
 
@@ -729,42 +734,46 @@ where
     }
 }
 
-impl<I, K, V, S> DoubleEndedIterator for Splice<'_, I, K, V, S>
+impl<I, K, V, S, A> DoubleEndedIterator for Splice<'_, I, K, V, S, A>
 where
     I: Iterator<Item = (K, V)>,
     K: Hash + Eq,
     S: BuildHasher,
+    A: Allocator,
 {
     fn next_back(&mut self) -> Option<Self::Item> {
         self.drain.next_back().map(Bucket::key_value)
     }
 }
 
-impl<I, K, V, S> ExactSizeIterator for Splice<'_, I, K, V, S>
+impl<I, K, V, S, A> ExactSizeIterator for Splice<'_, I, K, V, S, A>
 where
     I: Iterator<Item = (K, V)>,
     K: Hash + Eq,
     S: BuildHasher,
+    A: Allocator,
 {
     fn len(&self) -> usize {
         self.drain.len()
     }
 }
 
-impl<I, K, V, S> FusedIterator for Splice<'_, I, K, V, S>
+impl<I, K, V, S, A> FusedIterator for Splice<'_, I, K, V, S, A>
 where
     I: Iterator<Item = (K, V)>,
     K: Hash + Eq,
     S: BuildHasher,
+    A: Allocator,
 {
 }
 
-impl<'a, I, K, V, S> fmt::Debug for Splice<'a, I, K, V, S>
+impl<'a, I, K, V, S, A> fmt::Debug for Splice<'a, I, K, V, S, A>
 where
     I: fmt::Debug + Iterator<Item = (K, V)>,
     K: fmt::Debug + Hash + Eq,
     V: fmt::Debug,
     S: BuildHasher,
+    A: Allocator,
 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         // Follow `vec::Splice` in only printing the drain and replacement
