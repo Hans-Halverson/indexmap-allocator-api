@@ -1,11 +1,11 @@
 [package]
-name = "indexmap"
+name = "indexmap-allocator-api"
 edition = "2021"
 version = "2.7.1"
-documentation = "https://docs.rs/indexmap/"
-repository = "https://github.com/indexmap-rs/indexmap"
+documentation = "https://docs.rs/indexmap-allocator-api/"
+repository = "https://github.com/Hans-Halverson/indexmap-allocator-api"
 license = "Apache-2.0 OR MIT"
-description = "A hash table with consistent order and fast iteration."
+description = "A hash table with consistent order and fast iteration using the allocator api."
 keywords = ["hashmap", "no_std"]
 categories = ["data-structures", "no-std"]
 rust-version = "1.63"
